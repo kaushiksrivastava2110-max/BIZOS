@@ -2,25 +2,63 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #1A1A2E;
+  --brand-green: #82BC0D;
+  --brand-blue: #0EA2E8;
+  --brand-yellow: #F9B710;
+  --brand-navy: #1A1A2E;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Print styles for PDF reports */
+@media print {
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  body { background: white; }
+  .sidebar, .topbar { display: none !important; }
+}
+
+/* Kanban card transitions */
+.kanban-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.kanban-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+.kanban-card.dragging {
+  transform: rotate(2deg);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  opacity: 0.9;
 }
