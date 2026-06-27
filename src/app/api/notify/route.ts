@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
-const FROM = 'BIZOS <noreply@bizquad.com>'
+const FROM = 'BIZOS <noreply@bizquad.co.in>'
 
 export type NotificationType =
   | 'candidate_stuck'
