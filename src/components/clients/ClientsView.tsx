@@ -31,10 +31,6 @@ export function ClientsView({ currentUser }: Props) {
       .select('*, account_owner:users(id, name), openings(id, status)')
       .order('created_at', { ascending: false })
 
-    if (currentUser.role === 'recruiter') {
-      query = query.eq('account_owner_id', currentUser.id)
-    }
-
     const { data } = await query
     setClients(data ?? [])
     setLoading(false)
@@ -63,7 +59,7 @@ export function ClientsView({ currentUser }: Props) {
             onChange={e => setSearch(e.target.value)}
           />
         </div>
-        {currentUser.role !== 'viewer' && (
+        {(currentUser.role === 'admin' || currentUser.role === 'manager') && (
           <Button variant="primary" size="sm" onClick={() => setShowForm(true)}>
             <Plus className="h-4 w-4" />
             New Client

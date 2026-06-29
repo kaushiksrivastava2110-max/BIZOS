@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Topbar } from '@/components/layout/Topbar'
-import { ReportsView } from '@/components/reports/ReportsView'
+import { ReportsPageClient } from '@/components/reports/ReportsPageClient'
 import type { User } from '@/types'
 
 export default async function ReportsPage() {
@@ -18,7 +18,7 @@ export default async function ReportsPage() {
     <div className="flex flex-col flex-1">
       <Topbar user={profile as User} title="Reports" />
       <main className="flex-1 p-6">
-        <ReportsView currentUser={profile as User} />
+        <ReportsPageClient currentUser={profile as User} />
       </main>
     </div>
   )

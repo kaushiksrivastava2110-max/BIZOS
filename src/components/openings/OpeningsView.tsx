@@ -79,7 +79,7 @@ export function OpeningsView({ currentUser }: Props) {
           </SelectContent>
         </Select>
         <div className="ml-auto">
-          {currentUser.role !== 'viewer' && (
+          {(currentUser.role === 'admin' || currentUser.role === 'manager') && (
             <Button variant="primary" size="sm" onClick={() => setShowForm(true)}>
               <Plus className="h-4 w-4" /> New Opening
             </Button>

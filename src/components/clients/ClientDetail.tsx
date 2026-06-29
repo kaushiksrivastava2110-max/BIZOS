@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ClientForm } from './ClientForm'
-import { Pencil, Trash2, Briefcase, ExternalLink, Clock, FileText } from 'lucide-react'
+import { Pencil, Trash2, Briefcase, ExternalLink, Clock, FileText, Upload, Download, X } from 'lucide-react'
 import { HEALTH_COLORS, formatDate, timeAgo } from '@/lib/utils'
 import type { User, Client } from '@/types'
 
@@ -26,6 +26,15 @@ export function ClientDetail({ client, currentUser }: Props) {
   const [reports, setReports] = useState<any[]>([])
   const [showEditForm, setShowEditForm] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [docs, setDocs] = useState<{ msa_url?: string | null; msa_filename?: string | null; nda_url?: string | null; nda_filename?: string | null }>({
+    msa_url: (client as any).msa_url,
+    msa_filename: (client as any).msa_filename,
+    nda_url: (client as any).nda_url,
+    nda_filename: (client as any).nda_filename,
+  })
+  const [uploading, setUploading] = useState<'msa' | 'nda' | null>(null)
+  const msaRef = useRef<HTMLInputElement>(null)
+  const ndaRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
   const router = useRouter()
 
@@ -46,6 +55,41 @@ export function ClientDetail({ client, currentUser }: Props) {
   async function handleDelete() {
     const { error } = await supabase.from('clients').delete().eq('id', client.id)
     if (!error) router.push('/clients')
+  }
+
+  async function handleDocUpload(type: 'msa' | 'nda', file: File) {
+    setUploading(type)
+    try {
+      const ext = file.name.split('.').pop()
+      const path = `${client.id}/${type}-${Date.now()}.${ext}`
+      const { error: uploadError } = await supabase.storage
+        .from('client-docs')
+        .upload(path, file, { upsert: true })
+      if (uploadError) throw uploadError
+
+      const { data: { publicUrl } } = supabase.storage.from('client-docs').getPublicUrl(path)
+
+      const update = type === 'msa'
+        ? { msa_url: publicUrl, msa_filename: file.name }
+        : { nda_url: publicUrl, nda_filename: file.name }
+
+      const { error: dbError } = await supabase.from('clients').update(update).eq('id', client.id)
+      if (dbError) throw dbError
+
+      setDocs(prev => ({ ...prev, ...update }))
+    } catch (err: any) {
+      alert('Upload failed: ' + err.message)
+    } finally {
+      setUploading(null)
+    }
+  }
+
+  async function handleDocRemove(type: 'msa' | 'nda') {
+    const update = type === 'msa'
+      ? { msa_url: null, msa_filename: null }
+      : { nda_url: null, nda_filename: null }
+    await supabase.from('clients').update(update).eq('id', client.id)
+    setDocs(prev => ({ ...prev, ...update }))
   }
 
   const canEdit = currentUser.role === 'admin' || currentUser.role === 'manager' || client.account_owner_id === currentUser.id
@@ -106,6 +150,7 @@ export function ClientDetail({ client, currentUser }: Props) {
           <TabsTrigger value="openings">Openings ({openings.length})</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
           {canSeeCommercial && <TabsTrigger value="commercial">Commercial</TabsTrigger>}
+          {canSeeCommercial && <TabsTrigger value="documents">Documents</TabsTrigger>}
           <TabsTrigger value="reports">Reports</TabsTrigger>
         </TabsList>
 
@@ -226,6 +271,75 @@ export function ClientDetail({ client, currentUser }: Props) {
                     <p className="text-sm text-gray-700 whitespace-pre-wrap">{(client as any).intake_rationale}</p>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {/* Documents tab */}
+        {canSeeCommercial && (
+          <TabsContent value="documents">
+            <Card>
+              <CardContent className="p-5 space-y-6">
+                <p className="text-xs text-gray-500">Upload signed MSA and NDA documents for this client. Accepted: PDF, DOC, DOCX (max 10 MB).</p>
+
+                {(['msa', 'nda'] as const).map(type => {
+                  const label = type === 'msa' ? 'Master Service Agreement (MSA)' : 'Non-Disclosure Agreement (NDA)'
+                  const url = docs[`${type}_url` as 'msa_url' | 'nda_url']
+                  const filename = docs[`${type}_filename` as 'msa_filename' | 'nda_filename']
+                  const ref = type === 'msa' ? msaRef : ndaRef
+
+                  return (
+                    <div key={type} className="border border-gray-200 rounded-lg p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-gray-500" />
+                          <span className="text-sm font-medium text-[#1A1A2E]">{label}</span>
+                        </div>
+                        {canEdit && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => ref.current?.click()}
+                            disabled={uploading === type}
+                          >
+                            <Upload className="h-3.5 w-3.5" />
+                            {uploading === type ? 'Uploading…' : url ? 'Replace' : 'Upload'}
+                          </Button>
+                        )}
+                      </div>
+
+                      {url && filename ? (
+                        <div className="flex items-center gap-2 bg-gray-50 rounded-md px-3 py-2">
+                          <FileText className="h-4 w-4 text-[#0EA2E8] shrink-0" />
+                          <span className="text-sm text-gray-700 flex-1 truncate">{filename}</span>
+                          <a href={url} target="_blank" rel="noopener noreferrer">
+                            <Download className="h-4 w-4 text-gray-400 hover:text-[#0EA2E8]" />
+                          </a>
+                          {canEdit && (
+                            <button onClick={() => handleDocRemove(type)}>
+                              <X className="h-4 w-4 text-gray-400 hover:text-red-500" />
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400">No document uploaded yet.</p>
+                      )}
+
+                      <input
+                        ref={ref}
+                        type="file"
+                        accept=".pdf,.doc,.docx"
+                        className="hidden"
+                        onChange={e => {
+                          const file = e.target.files?.[0]
+                          if (file) handleDocUpload(type, file)
+                          e.target.value = ''
+                        }}
+                      />
+                    </div>
+                  )
+                })}
               </CardContent>
             </Card>
           </TabsContent>
