@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Building2, Briefcase, Users, BarChart3,
-  FileText, Settings, ClipboardList, LogOut, ChevronRight,
+  FileText, Settings, ClipboardList, LogOut, ChevronRight, HeartPulse,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { User } from '@/types'
@@ -19,6 +19,7 @@ const navItems = [
   { href: '/daily-log', label: 'Daily Log', icon: ClipboardList, roles: ['admin', 'manager', 'recruiter'] },
   { href: '/productivity', label: 'Productivity', icon: BarChart3, roles: ['admin', 'manager'] },
   { href: '/reports', label: 'Reports', icon: FileText, roles: ['admin', 'manager'] },
+  { href: '/hrms', label: 'HRMS', icon: HeartPulse, roles: ['admin', 'manager', 'recruiter'] },
   { href: '/settings', label: 'Settings', icon: Settings, roles: ['admin'] },
 ]
 
