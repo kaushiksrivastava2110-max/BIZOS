@@ -189,87 +189,160 @@ export function PayslipsView({ currentUser }: Props) {
   )
 }
 
+function numToWords(num: number): string {
+  if (!num || num <= 0) return 'Zero Rupees'
+  const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen']
+  const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety']
+  const two = (n: number): string => n < 20 ? ones[n] : tens[Math.floor(n/10)] + (n%10 ? ' ' + ones[n%10] : '')
+  const three = (n: number): string => n >= 100 ? ones[Math.floor(n/100)] + ' Hundred' + (n%100 ? ' ' + two(n%100) : '') : two(n)
+  let n = Math.round(num), r = ''
+  if (n >= 10000000) { r += three(Math.floor(n/10000000)) + ' Crore '; n %= 10000000 }
+  if (n >= 100000)   { r += three(Math.floor(n/100000)) + ' Lakh '; n %= 100000 }
+  if (n >= 1000)     { r += three(Math.floor(n/1000)) + ' Thousand '; n %= 1000 }
+  if (n > 0) r += three(n)
+  return 'Rupees ' + r.trim() + ' Only'
+}
+
 function generatePayslipHTML(p: any, empName: string, empEmail: string) {
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
   const totalDeductions = (p.pf_employee || 0) + (p.professional_tax || 0) + (p.tds || 0) + (p.other_deductions || 0) + (p.lop_deduction || 0)
-  const fmt = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+  const fmt = (n: number) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })
+  const initials = empName.split(' ').map((w: string) => w[0]).filter(Boolean).slice(0,2).join('').toUpperCase() || 'BQ'
+  const genDate = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
+
+  // Build earnings rows
+  const earns: { l: string; a: number }[] = [
+    { l: 'Basic Salary', a: p.basic_salary || 0 },
+    { l: 'HRA', a: p.hra || 0 },
+  ]
+  if (p.allowances > 0) earns.push({ l: 'Special Allowance', a: p.allowances })
+
+  // Build deductions rows
+  const deds: { l: string; a: number }[] = []
+  if (p.pf_employee > 0)      deds.push({ l: 'PF (Employee)', a: p.pf_employee })
+  if (p.professional_tax > 0) deds.push({ l: 'Professional Tax', a: p.professional_tax })
+  if (p.tds > 0)               deds.push({ l: 'TDS / Income Tax', a: p.tds })
+  if (p.other_deductions > 0)  deds.push({ l: 'Other Deductions', a: p.other_deductions })
+  if (p.lop_deduction > 0)     deds.push({ l: 'LOP Deduction', a: p.lop_deduction })
+
+  const rowCount = Math.max(earns.length, deds.length)
+  let salRows = ''
+  for (let i = 0; i < rowCount; i++) {
+    const e = earns[i] || { l: '', a: null as unknown as number }
+    const d = deds[i]  || { l: '', a: null as unknown as number }
+    const even = i % 2 === 1 ? 'background:#fafbfc' : ''
+    salRows += `<div style="display:grid;grid-template-columns:1fr 100px 1fr 100px;border-bottom:1px solid #f0f4f8;${even}">
+      <div style="padding:5px 10px;font-size:12.5px">${e.l}</div>
+      <div style="padding:5px 10px;font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums">${e.a != null && e.l ? fmt(e.a) : ''}</div>
+      <div style="padding:5px 10px;font-size:12.5px;border-left:1px solid #dde3ec">${d.l}</div>
+      <div style="padding:5px 10px;font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums">${d.a != null && d.l ? fmt(d.a) : ''}</div>
+    </div>`
+  }
 
   return `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Payslip - ${MONTHS[p.month - 1]} ${p.year}</title>
-  <style>
-    body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; color: #1a1a2e; }
-    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #1a1a2e; padding-bottom: 16px; margin-bottom: 24px; }
-    .company { font-size: 22px; font-weight: bold; color: #1a1a2e; }
-    .company small { display: block; font-size: 12px; font-weight: normal; color: #666; }
-    .title { text-align: right; }
-    .title h2 { margin: 0; font-size: 18px; color: #0EA2E8; }
-    .title p { margin: 4px 0 0; font-size: 13px; color: #666; }
-    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: #f8f8f8; padding: 16px; border-radius: 8px; margin-bottom: 24px; }
-    .info-item { font-size: 13px; } .info-item span { font-weight: 600; }
-    .table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
-    .table th { background: #1a1a2e; color: white; padding: 10px 14px; text-align: left; font-size: 13px; }
-    .table td { padding: 9px 14px; font-size: 13px; border-bottom: 1px solid #eee; }
-    .table tr:last-child td { border-bottom: none; }
-    .totals { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .total-box { background: #f8f8f8; padding: 16px; border-radius: 8px; }
-    .total-box .label { font-size: 12px; color: #666; margin-bottom: 4px; }
-    .total-box .value { font-size: 20px; font-weight: bold; }
-    .net { background: #1a1a2e; color: white; }
-    .net .label { color: rgba(255,255,255,0.7); }
-    .footer { margin-top: 32px; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 12px; text-align: center; }
-    @media print { body { margin: 0; } }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Payslip – ${MONTHS[p.month - 1]} ${p.year}</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f8;color:#0f172a;line-height:1.5}
+#slip{background:#fff;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,.13);overflow:hidden;max-width:800px;margin:30px auto;font-size:12.5px}
+.slip-head{background:#1e3a5f;color:#fff;padding:18px 24px;display:flex;align-items:center;gap:14px}
+.slip-logo{width:52px;height:52px;background:rgba(255,255,255,.18);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;flex-shrink:0}
+.slip-co h2{font-size:19px;font-weight:700;letter-spacing:-.02em}
+.slip-co p{font-size:11.5px;opacity:.75;margin-top:2px}
+.slip-band{background:#162e4d;padding:7px 24px;display:flex;justify-content:space-between;align-items:center}
+.slip-band h3{color:#fff;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.12em}
+.slip-band span{color:#93c5fd;font-size:12px;font-weight:600}
+.slip-body{padding:18px 24px}
+.emp-grid{display:grid;grid-template-columns:1fr 1fr;border:1px solid #dde3ec;border-radius:6px;overflow:hidden;margin-bottom:16px;font-size:12px}
+.eg-lbl{background:#f7f9fc;font-weight:700;color:#64748b;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;padding:6px 10px;border-bottom:1px solid #dde3ec;border-right:1px solid #dde3ec}
+.eg-val{font-weight:500;color:#0f172a;padding:6px 10px;border-bottom:1px solid #dde3ec}
+.eg-lbl:nth-last-child(2),.eg-val:last-child{border-bottom:none}
+.sal-table{border:1px solid #dde3ec;border-radius:6px;overflow:hidden;margin-bottom:16px}
+.sal-head{display:grid;grid-template-columns:1fr 100px 1fr 100px;background:#1e3a5f;color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
+.sal-head>div{padding:8px 10px}
+.sal-head>div:nth-child(2),.sal-head>div:nth-child(4){text-align:right}
+.sal-head>div:nth-child(3){border-left:1px solid rgba(255,255,255,.2)}
+.sal-total{display:grid;grid-template-columns:1fr 100px 1fr 100px;background:#eef2f7;font-weight:800;font-size:12.5px}
+.sal-total>div{padding:8px 10px}
+.sal-total>div:nth-child(2),.sal-total>div:nth-child(4){text-align:right;font-variant-numeric:tabular-nums}
+.sal-total>div:nth-child(3){border-left:1px solid #dde3ec}
+.net-pay{background:linear-gradient(135deg,#1e3a5f,#2d5282);color:#fff;padding:14px 18px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.slip-footer{border-top:1px solid #dde3ec;padding:14px 24px;display:flex;justify-content:space-between;align-items:flex-end}
+.sig-block{text-align:center;font-size:11px;color:#64748b}
+.sig-line{border-top:1px solid #cbd5e1;padding-top:5px;min-width:120px;margin-top:28px}
+.slip-note{font-size:10px;color:#94a3b8;text-align:center;padding:6px 24px 10px;border-top:1px solid #f0f4f8}
+@media print{
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  body{background:#fff}
+  #slip{box-shadow:none;border-radius:0;margin:.3in}
+  @page{size:A4;margin:0}
+}
+</style>
 </head>
 <body>
-  <div class="header">
-    <div class="company">BIZQUAD CONSULTANTS<small>HR Management System</small></div>
-    <div class="title"><h2>PAYSLIP</h2><p>${MONTHS[p.month - 1]} ${p.year}</p></div>
+<div id="slip">
+  <div class="slip-head">
+    <div class="slip-logo">${initials}</div>
+    <div class="slip-co">
+      <h2>BIZQUAD CONSULTANTS PRIVATE LIMITED</h2>
+      <p>HR Management System</p>
+    </div>
+  </div>
+  <div class="slip-band">
+    <h3>Salary Slip</h3>
+    <span>${MONTHS[p.month - 1]} ${p.year}</span>
+  </div>
+  <div class="slip-body">
+    <div class="emp-grid">
+      <div class="eg-lbl">Employee Name</div><div class="eg-val">${empName}</div>
+      <div class="eg-lbl">Email</div><div class="eg-val">${empEmail}</div>
+      <div class="eg-lbl">Pay Period</div><div class="eg-val">${MONTHS[p.month - 1]} ${p.year}</div>
+      <div class="eg-lbl">Working Days</div><div class="eg-val">${p.working_days}</div>
+      <div class="eg-lbl">Days Worked</div><div class="eg-val">${p.days_worked}</div>
+      <div class="eg-lbl">LOP Days</div><div class="eg-val">${p.lop_days || 0}</div>
+    </div>
+
+    <div class="sal-table">
+      <div class="sal-head">
+        <div>Earnings</div><div>Amount (₹)</div><div>Deductions</div><div>Amount (₹)</div>
+      </div>
+      ${salRows}
+      <div class="sal-total">
+        <div>Gross Earnings</div><div>₹ ${fmt(p.gross_pay)}</div>
+        <div>Total Deductions</div><div>₹ ${fmt(totalDeductions)}</div>
+      </div>
+    </div>
+
+    <div class="net-pay">
+      <div>
+        <div style="font-size:11px;opacity:.75;text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px">Net Take-Home Pay</div>
+        <div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums">₹ ${fmt(p.net_pay)}</div>
+      </div>
+      <div style="text-align:right;max-width:260px">
+        <div style="font-size:10px;opacity:.6;text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px">Amount in Words</div>
+        <div style="font-size:11.5px;opacity:.82">${numToWords(Math.round(p.net_pay || 0))}</div>
+      </div>
+    </div>
+
+    ${p.notes ? `<div style="margin-bottom:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12.5px"><strong>Notes:</strong> ${p.notes}</div>` : ''}
   </div>
 
-  <div class="info-grid">
-    <div class="info-item">Employee Name: <span>${empName}</span></div>
-    <div class="info-item">Email: <span>${empEmail}</span></div>
-    <div class="info-item">Working Days: <span>${p.working_days}</span></div>
-    <div class="info-item">Days Worked: <span>${p.days_worked}</span></div>
-    <div class="info-item">LOP Days: <span>${p.lop_days}</span></div>
-    <div class="info-item">Pay Period: <span>${MONTHS[p.month - 1]} ${p.year}</span></div>
+  <div class="slip-footer">
+    <div class="sig-block">
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:20px">Generated: ${genDate}</div>
+      <div class="sig-line">Employee Signature</div>
+    </div>
+    <div class="sig-block">
+      <div class="sig-line" style="margin-left:auto">Authorized Signatory</div>
+    </div>
   </div>
-
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
-    <table class="table">
-      <thead><tr><th>Earnings</th><th>Amount</th></tr></thead>
-      <tbody>
-        <tr><td>Basic Salary</td><td>${fmt(p.basic_salary)}</td></tr>
-        <tr><td>HRA</td><td>${fmt(p.hra)}</td></tr>
-        <tr><td>Allowances</td><td>${fmt(p.allowances)}</td></tr>
-        <tr style="font-weight:bold;background:#f0f0f0"><td>Gross Pay</td><td>${fmt(p.gross_pay)}</td></tr>
-      </tbody>
-    </table>
-    <table class="table">
-      <thead><tr><th>Deductions</th><th>Amount</th></tr></thead>
-      <tbody>
-        <tr><td>PF (Employee)</td><td>${fmt(p.pf_employee)}</td></tr>
-        <tr><td>Professional Tax</td><td>${fmt(p.professional_tax)}</td></tr>
-        <tr><td>TDS</td><td>${fmt(p.tds)}</td></tr>
-        <tr><td>Other Deductions</td><td>${fmt(p.other_deductions)}</td></tr>
-        <tr><td>LOP Deduction</td><td>${fmt(p.lop_deduction)}</td></tr>
-        <tr style="font-weight:bold;background:#f0f0f0"><td>Total Deductions</td><td>${fmt(totalDeductions)}</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="totals">
-    <div class="total-box"><div class="label">Total Deductions</div><div class="value" style="color:#ef4444">${fmt(totalDeductions)}</div></div>
-    <div class="total-box net"><div class="label">Net Pay (Take Home)</div><div class="value">${fmt(p.net_pay)}</div></div>
-  </div>
-
-  ${p.notes ? `<div style="margin-top:20px;padding:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:13px"><strong>Notes:</strong> ${p.notes}</div>` : ''}
-
-  <div class="footer">This is a computer-generated payslip and does not require a signature. Generated by BIZOS HRMS.</div>
-  <script>window.onload = () => window.print()</script>
+  <div class="slip-note">This is a computer-generated payslip and does not require a physical signature.</div>
+</div>
+<script>window.onload = () => window.print()</script>
 </body>
 </html>`
 }
