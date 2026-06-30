@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Loader2, CheckCircle2, ClipboardList, ChevronDown, ChevronUp, Plus, CheckSquare, Square, Briefcase, Target } from 'lucide-react'
+import { Loader2, CheckCircle2, ClipboardList, ChevronDown, ChevronUp, Plus, CheckSquare, Square, Briefcase, Target, Phone, Trash2 } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import type { User } from '@/types'
 
@@ -35,12 +35,25 @@ export function DailyLogView({ currentUser }: Props) {
   const [todaySubmissions, setTodaySubmissions] = useState(0)
   const [recruiters, setRecruiters] = useState<User[]>([])
   const [openings, setOpenings] = useState<any[]>([])
+  const [candidates, setCandidates] = useState<any[]>([])
+  const [clients, setClients] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [expandHistory, setExpandHistory] = useState(false)
   const [showTaskForm, setShowTaskForm] = useState(false)
-  const [taskForm, setTaskForm] = useState({ assigned_to: '', title: '', description: '', due_date: '', opening_id: '' })
+  const [callLogs, setCallLogs] = useState<any[]>([])
+  const [showCallForm, setShowCallForm] = useState(false)
+  const [callForm, setCallForm] = useState({
+    contact_name: '', contact_type: 'Candidate', call_type: 'Sourcing',
+    outcome: 'Interested', follow_up_required: false, notes: '',
+  })
+  const [callSaving, setCallSaving] = useState(false)
+  const [todayPipelineSubmissions, setTodayPipelineSubmissions] = useState<any[]>([])
+  const [taskForm, setTaskForm] = useState({
+    assigned_to: '', title: '', description: '', due_date: '', opening_id: '',
+    task_type: 'Other', priority: 'Medium', candidate_id: '', client_id: '',
+  })
   const [taskSaving, setTaskSaving] = useState(false)
   const [form, setForm] = useState({
     resumes_sourced: 0, calls_made: 0, submissions_done: 0,
@@ -49,12 +62,14 @@ export function DailyLogView({ currentUser }: Props) {
   const supabase = createClient()
 
   async function load() {
-    const [todayRes, pastRes, tasksRes, openPosRes, subTodayRes] = await Promise.all([
+    const [todayRes, pastRes, tasksRes, openPosRes, subTodayRes, callLogsRes, pipelineSubsRes] = await Promise.all([
       supabase.from('daily_logs').select('*').eq('user_id', currentUser.id).eq('log_date', TODAY).single(),
       supabase.from('daily_logs').select('*, user:users(name)').eq('user_id', currentUser.id).lt('log_date', TODAY).order('log_date', { ascending: false }).limit(14),
       supabase.from('recruiter_tasks').select('*, assigned_to:users!recruiter_tasks_assigned_to_fkey(name), opening:openings(title)').or(`assigned_to.eq.${currentUser.id},assigned_by.eq.${currentUser.id}`).order('created_at', { ascending: false }),
       supabase.from('openings').select('id', { count: 'exact', head: true }).eq('status', 'Open'),
       supabase.from('submissions').select('id', { count: 'exact', head: true }).gte('created_at', TODAY),
+      supabase.from('call_logs').select('*').eq('user_id', currentUser.id).eq('log_date', TODAY).order('created_at', { ascending: false }),
+      supabase.from('submissions').select('id, stage, candidate:candidates(name), opening:openings(title)').eq('recruiter_id', currentUser.id).gte('created_at', TODAY + 'T00:00:00').lte('created_at', TODAY + 'T23:59:59'),
     ])
 
     if (todayRes.data) {
@@ -66,16 +81,22 @@ export function DailyLogView({ currentUser }: Props) {
     setTasks(tasksRes.data ?? [])
     setOpenPositions(openPosRes.count ?? 0)
     setTodaySubmissions(subTodayRes.count ?? 0)
+    setCallLogs(callLogsRes.data ?? [])
+    setTodayPipelineSubmissions(pipelineSubsRes.data ?? [])
 
     if (currentUser.role === 'admin' || currentUser.role === 'manager') {
-      const [teamRes, recruitersRes, openingsRes] = await Promise.all([
+      const [teamRes, recruitersRes, openingsRes, candidatesRes, clientsRes] = await Promise.all([
         supabase.from('daily_logs').select('*, user:users(id, name)').eq('log_date', TODAY).order('created_at', { ascending: false }),
         supabase.from('users').select('*').in('role', ['recruiter', 'manager']).order('name'),
         supabase.from('openings').select('id, title, client:clients(name)').eq('status', 'Open').order('created_at', { ascending: false }),
+        supabase.from('candidates').select('id, name, current_employer').order('name').limit(200),
+        supabase.from('clients').select('id, name').order('name'),
       ])
       setTeamLogs(teamRes.data ?? [])
       setRecruiters((recruitersRes.data as User[]) ?? [])
       setOpenings(openingsRes.data ?? [])
+      setCandidates(candidatesRes.data ?? [])
+      setClients(clientsRes.data ?? [])
     }
 
     setLoading(false)
@@ -118,11 +139,41 @@ export function DailyLogView({ currentUser }: Props) {
       description: taskForm.description || null,
       due_date: taskForm.due_date || null,
       opening_id: taskForm.opening_id || null,
+      task_type: taskForm.task_type,
+      priority: taskForm.priority,
+      candidate_id: taskForm.candidate_id || null,
+      client_id: taskForm.client_id || null,
     })
-    setTaskForm({ assigned_to: '', title: '', description: '', due_date: '', opening_id: '' })
+    setTaskForm({ assigned_to: '', title: '', description: '', due_date: '', opening_id: '', task_type: 'Other', priority: 'Medium', candidate_id: '', client_id: '' })
     setShowTaskForm(false)
     setTaskSaving(false)
     load()
+  }
+
+  async function handleAddCall(e: React.FormEvent) {
+    e.preventDefault()
+    setCallSaving(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data } = await supabase.from('call_logs').insert({
+      user_id: user.id,
+      log_date: TODAY,
+      contact_name: callForm.contact_name,
+      contact_type: callForm.contact_type,
+      call_type: callForm.call_type,
+      outcome: callForm.outcome,
+      follow_up_required: callForm.follow_up_required,
+      notes: callForm.notes || null,
+    }).select().single()
+    setCallLogs(prev => [data, ...prev])
+    setCallForm({ contact_name: '', contact_type: 'Candidate', call_type: 'Sourcing', outcome: 'Interested', follow_up_required: false, notes: '' })
+    setShowCallForm(false)
+    setCallSaving(false)
+  }
+
+  async function deleteCallLog(id: string) {
+    await supabase.from('call_logs').delete().eq('id', id)
+    setCallLogs(prev => prev.filter(c => c.id !== id))
   }
 
   async function toggleTask(task: any) {
@@ -203,7 +254,19 @@ export function DailyLogView({ currentUser }: Props) {
                     <Square className="h-4 w-4" />
                   </button>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#1A1A2E]">{task.title}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-medium text-[#1A1A2E]">{task.title}</p>
+                      {task.priority && (
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                          task.priority === 'High' ? 'bg-red-100 text-red-600' :
+                          task.priority === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-gray-100 text-gray-500'
+                        }`}>{task.priority}</span>
+                      )}
+                      {task.task_type && task.task_type !== 'Other' && (
+                        <span className="text-[10px] bg-[#0EA2E8]/10 text-[#0EA2E8] px-1.5 py-0.5 rounded">{task.task_type}</span>
+                      )}
+                    </div>
                     {task.description && <p className="text-xs text-gray-500 mt-0.5">{task.description}</p>}
                     <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                       {task.assigned_to?.name && <span className="text-xs text-[#0EA2E8]">→ {task.assigned_to.name}</span>}
@@ -226,6 +289,118 @@ export function DailyLogView({ currentUser }: Props) {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Pipeline submissions today */}
+      {todayPipelineSubmissions.length > 0 && (
+        <div className="rounded-xl border border-[#F9B710]/20 bg-[#F9B710]/5 px-4 py-3">
+          <p className="text-xs font-semibold text-[#b8890a] mb-2">Today's Pipeline Submissions (auto-detected)</p>
+          <div className="space-y-1">
+            {todayPipelineSubmissions.map((s: any) => (
+              <div key={s.id} className="flex items-center gap-2 text-xs text-gray-600">
+                <span className="text-[#82BC0D]">✓</span>
+                <span className="font-medium">{s.candidate?.name}</span>
+                <span className="text-gray-400">→ {s.opening?.title}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Call log */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Phone className="h-4 w-4 text-[#0EA2E8]" />
+              Call Log — Today
+            </CardTitle>
+            <Button variant="outline" size="sm" onClick={() => setShowCallForm(v => !v)}>
+              <Plus className="h-3.5 w-3.5" /> Log Call
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {showCallForm && (
+            <form onSubmit={handleAddCall} className="mb-4 p-4 border border-gray-100 rounded-lg bg-gray-50 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Contact Name *</Label>
+                  <Input value={callForm.contact_name} onChange={e => setCallForm(f => ({ ...f, contact_name: e.target.value }))} placeholder="Candidate / client name" required className="h-8 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Contact Type</Label>
+                  <Select value={callForm.contact_type} onValueChange={v => setCallForm(f => ({ ...f, contact_type: v }))}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {['Candidate', 'Client'].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Call Type</Label>
+                  <Select value={callForm.call_type} onValueChange={v => setCallForm(f => ({ ...f, call_type: v }))}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {['Sourcing', 'Screening', 'Offer', 'Feedback', 'General'].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Outcome</Label>
+                  <Select value={callForm.outcome} onValueChange={v => setCallForm(f => ({ ...f, outcome: v }))}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {['Interested', 'Not Interested', 'Callback Required', 'Accepted', 'Rejected', 'Other'].map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-600">
+                  <input type="checkbox" checked={callForm.follow_up_required} onChange={e => setCallForm(f => ({ ...f, follow_up_required: e.target.checked }))} className="rounded border-gray-300 text-[#0EA2E8]" />
+                  Follow-up required
+                </label>
+              </div>
+              <Input value={callForm.notes} onChange={e => setCallForm(f => ({ ...f, notes: e.target.value }))} placeholder="Notes (optional)" className="h-8 text-sm" />
+              <div className="flex gap-2 justify-end">
+                <Button type="button" variant="outline" size="sm" onClick={() => setShowCallForm(false)}>Cancel</Button>
+                <Button type="submit" variant="primary" size="sm" disabled={callSaving || !callForm.contact_name}>
+                  {callSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save Call'}
+                </Button>
+              </div>
+            </form>
+          )}
+          {callLogs.length === 0 && !showCallForm ? (
+            <p className="text-sm text-gray-400 text-center py-4">No calls logged today.</p>
+          ) : (
+            <div className="space-y-2">
+              {callLogs.map((log: any) => (
+                <div key={log.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-[#1A1A2E]">{log.contact_name}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${log.contact_type === 'Candidate' ? 'bg-[#0EA2E8]/10 text-[#0EA2E8]' : 'bg-purple-100 text-purple-600'}`}>
+                        {log.contact_type}
+                      </span>
+                      <span className="text-xs text-gray-400">{log.call_type}</span>
+                      <span className={`text-xs font-medium ${log.outcome === 'Interested' || log.outcome === 'Accepted' ? 'text-[#82BC0D]' : log.outcome === 'Not Interested' || log.outcome === 'Rejected' ? 'text-red-500' : 'text-[#F9B710]'}`}>
+                        {log.outcome}
+                      </span>
+                      {log.follow_up_required && <span className="text-[10px] bg-[#F9B710]/20 text-[#b8890a] px-1.5 py-0.5 rounded">Follow-up ⚡</span>}
+                    </div>
+                    {log.notes && <p className="text-xs text-gray-400 mt-0.5">{log.notes}</p>}
+                  </div>
+                  <button onClick={() => deleteCallLog(log.id)} className="text-gray-300 hover:text-red-400 transition-colors shrink-0">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
@@ -354,12 +529,34 @@ export function DailyLogView({ currentUser }: Props) {
           <DialogContent className="max-w-md">
             <DialogHeader><DialogTitle>Assign Task to Recruiter</DialogTitle></DialogHeader>
             <form onSubmit={handleAddTask} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Assign To *</Label>
+                  <Select value={taskForm.assigned_to} onValueChange={v => setTaskForm(f => ({ ...f, assigned_to: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Select recruiter..." /></SelectTrigger>
+                    <SelectContent>
+                      {recruiters.map(r => <SelectItem key={r.id} value={r.id}>{r.name} ({r.role})</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Priority</Label>
+                  <Select value={taskForm.priority} onValueChange={v => setTaskForm(f => ({ ...f, priority: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {['High', 'Medium', 'Low'].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
               <div className="space-y-1.5">
-                <Label>Assign To *</Label>
-                <Select value={taskForm.assigned_to} onValueChange={v => setTaskForm(f => ({ ...f, assigned_to: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Select recruiter..." /></SelectTrigger>
+                <Label>Task Type</Label>
+                <Select value={taskForm.task_type} onValueChange={v => setTaskForm(f => ({ ...f, task_type: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {recruiters.map(r => <SelectItem key={r.id} value={r.id}>{r.name} ({r.role})</SelectItem>)}
+                    {['Follow up with candidate', 'Follow up with client', 'Schedule interview', 'Send submission', 'Collect documents', 'Get feedback', 'Other'].map(t => (
+                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -369,7 +566,29 @@ export function DailyLogView({ currentUser }: Props) {
               </div>
               <div className="space-y-1.5">
                 <Label>Description</Label>
-                <Textarea value={taskForm.description} onChange={e => setTaskForm(f => ({ ...f, description: e.target.value }))} placeholder="Additional context..." className="h-20" />
+                <Textarea value={taskForm.description} onChange={e => setTaskForm(f => ({ ...f, description: e.target.value }))} placeholder="Additional context..." className="h-16" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Link to Candidate</Label>
+                  <Select value={taskForm.candidate_id} onValueChange={v => setTaskForm(f => ({ ...f, candidate_id: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Optional..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      {candidates.map((c: any) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Link to Client</Label>
+                  <Select value={taskForm.client_id} onValueChange={v => setTaskForm(f => ({ ...f, client_id: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Optional..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      {clients.map((c: any) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">

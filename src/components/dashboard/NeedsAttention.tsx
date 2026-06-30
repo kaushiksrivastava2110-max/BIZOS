@@ -5,12 +5,12 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { AlertTriangle, Clock, FileWarning } from 'lucide-react'
+import { AlertTriangle, Clock, FileWarning, Bell } from 'lucide-react'
 import { daysSince } from '@/lib/utils'
 
 interface AttentionItem {
   id: string
-  type: 'stuck_candidate' | 'inactive_opening'
+  type: 'stuck_candidate' | 'inactive_opening' | 'sla_breach'
   title: string
   subtitle: string
   daysAgo: number
@@ -60,7 +60,14 @@ export function NeedsAttention({ userId }: Props) {
 
       if (userId) openQ = openQ.eq('assigned_recruiter_id', userId)
 
-      const [{ data: stuckSubs }, { data: inactiveOpenings }] = await Promise.all([submQ, openQ])
+      const [{ data: stuckSubs }, { data: inactiveOpenings }, { data: slaRecords }] = await Promise.all([
+        submQ, openQ,
+        supabase
+          .from('submission_records')
+          .select('submission_id, submitted_at, sla_days, submission:submissions(id, opening_id, candidate:candidates(name), opening:openings(title, clients(name)))')
+          .eq('acknowledgement_status', 'Pending')
+          .limit(5),
+      ])
 
       const attentionItems: AttentionItem[] = []
 
@@ -76,6 +83,26 @@ export function NeedsAttention({ userId }: Props) {
           href: `/openings/${s.opening_id}`,
           severity: daysSince(s.stage_entered_at) > 10 ? 'high' : 'medium',
         })
+      }
+
+      // SLA breach items
+      for (const rec of slaRecords ?? []) {
+        const daysSinceSubmitted = daysSince(rec.submitted_at)
+        if (daysSinceSubmitted > (rec.sla_days || 3)) {
+          const sub = Array.isArray(rec.submission) ? rec.submission[0] : rec.submission
+          const candidate = Array.isArray(sub?.candidate) ? sub.candidate[0] : sub?.candidate
+          const opening = Array.isArray(sub?.opening) ? sub.opening[0] : sub?.opening
+          const client = Array.isArray(opening?.clients) ? opening.clients[0] : opening?.clients
+          attentionItems.push({
+            id: rec.submission_id,
+            type: 'sla_breach',
+            title: `${candidate?.name ?? 'Candidate'} — No client acknowledgement`,
+            subtitle: `Submitted ${daysSinceSubmitted}d ago to ${opening?.title ?? ''} @ ${client?.name ?? ''}`,
+            daysAgo: daysSinceSubmitted,
+            href: `/openings/${sub?.opening_id ?? ''}`,
+            severity: 'high',
+          })
+        }
       }
 
       for (const o of inactiveOpenings ?? []) {
@@ -129,7 +156,9 @@ export function NeedsAttention({ userId }: Props) {
                 className="flex items-center gap-4 py-3 hover:bg-gray-50 -mx-5 px-5 transition-colors first:rounded-t-lg last:rounded-b-lg"
               >
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${item.severity === 'high' ? 'bg-red-50' : 'bg-amber-50'}`}>
-                  {item.type === 'stuck_candidate'
+                  {item.type === 'sla_breach'
+                    ? <Bell className="w-4 h-4 text-red-500" />
+                    : item.type === 'stuck_candidate'
                     ? <Clock className={`w-4 h-4 ${item.severity === 'high' ? 'text-red-500' : 'text-amber-500'}`} />
                     : <FileWarning className="w-4 h-4 text-amber-500" />
                   }

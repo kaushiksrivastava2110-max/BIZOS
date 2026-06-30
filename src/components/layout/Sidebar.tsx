@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Building2, Briefcase, Users, BarChart3,
-  FileText, Settings, ClipboardList, LogOut, ChevronRight, HeartPulse,
+  FileText, Settings, ClipboardList, LogOut, ChevronRight, HeartPulse, Radar,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { User } from '@/types'
@@ -17,6 +17,7 @@ const navItems = [
   { href: '/openings', label: 'Openings', icon: Briefcase, roles: ['admin', 'manager', 'recruiter'] },
   { href: '/candidates', label: 'Candidates', icon: Users, roles: ['admin', 'manager', 'recruiter'] },
   { href: '/daily-log', label: 'Daily Log', icon: ClipboardList, roles: ['admin', 'manager', 'recruiter'] },
+  { href: '/pipeline', label: 'Pipeline', icon: Radar, roles: ['admin', 'manager'] },
   { href: '/productivity', label: 'Productivity', icon: BarChart3, roles: ['admin', 'manager'] },
   { href: '/reports', label: 'Reports', icon: FileText, roles: ['admin', 'manager'] },
   { href: '/hrms', label: 'HRMS', icon: HeartPulse, roles: ['admin', 'manager', 'recruiter'] },

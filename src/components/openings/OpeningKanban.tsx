@@ -16,6 +16,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { OpeningForm } from './OpeningForm'
 import { AddCandidateToOpeningForm } from './AddCandidateToOpeningForm'
+import { SubmissionRecordForm } from '@/components/candidates/SubmissionRecordForm'
+import { InterviewForm } from '@/components/candidates/InterviewForm'
+import { OfferForm } from '@/components/candidates/OfferForm'
 import { Pencil, Plus, User as UserIcon, Clock, AlertTriangle } from 'lucide-react'
 import { SUBMISSION_STAGES, STAGE_COLORS, daysSince } from '@/lib/utils'
 import type { User, SubmissionStage } from '@/types'
@@ -84,6 +87,11 @@ export function OpeningKanban({ opening, currentUser }: Props) {
   const [showEditForm, setShowEditForm] = useState(false)
   const [showAddCandidate, setShowAddCandidate] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [pendingStageForm, setPendingStageForm] = useState<{
+    type: 'submission' | 'interview' | 'offer'
+    submissionId: string
+    candidateName: string
+  } | null>(null)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
   const router = useRouter()
@@ -152,6 +160,15 @@ export function OpeningKanban({ opening, currentUser }: Props) {
       action: 'stage_changed',
       notes: `Moved ${sub.candidateName} from "${sub.stage}" to "${newStage}" in ${opening.title}`,
     })
+
+    // Trigger context-aware forms on key stage moves
+    if (newStage === 'Submitted') {
+      setPendingStageForm({ type: 'submission', submissionId, candidateName: sub.candidateName })
+    } else if (newStage === 'Interview L1' || newStage === 'Interview L2') {
+      setPendingStageForm({ type: 'interview', submissionId, candidateName: sub.candidateName })
+    } else if (newStage === 'Offer') {
+      setPendingStageForm({ type: 'offer', submissionId, candidateName: sub.candidateName })
+    }
   }
 
   function handleDragStart(event: DragStartEvent) {
@@ -336,6 +353,33 @@ export function OpeningKanban({ opening, currentUser }: Props) {
           currentUser={currentUser}
           onClose={() => setShowAddCandidate(false)}
           onSaved={() => { setShowAddCandidate(false); loadSubmissions() }}
+        />
+      )}
+
+      {pendingStageForm?.type === 'submission' && (
+        <SubmissionRecordForm
+          submissionId={pendingStageForm.submissionId}
+          candidateName={pendingStageForm.candidateName}
+          onClose={() => setPendingStageForm(null)}
+          onSaved={() => setPendingStageForm(null)}
+        />
+      )}
+
+      {pendingStageForm?.type === 'interview' && (
+        <InterviewForm
+          submissionId={pendingStageForm.submissionId}
+          candidateName={pendingStageForm.candidateName}
+          onClose={() => setPendingStageForm(null)}
+          onSaved={() => setPendingStageForm(null)}
+        />
+      )}
+
+      {pendingStageForm?.type === 'offer' && (
+        <OfferForm
+          submissionId={pendingStageForm.submissionId}
+          candidateName={pendingStageForm.candidateName}
+          onClose={() => setPendingStageForm(null)}
+          onSaved={() => setPendingStageForm(null)}
         />
       )}
     </div>
