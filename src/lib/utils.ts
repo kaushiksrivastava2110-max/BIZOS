@@ -52,14 +52,12 @@ export const PRACTICE_AREAS = [
 ] as const
 
 export const SUBMISSION_STAGES = [
-  'Sourced', 'Screened', 'Submitted', 'Client Review',
+  'Submitted', 'Client Review',
   'Interview L1', 'Interview L2', 'Offer', 'Joined', 'Dropped',
 ] as const
 
 export const STAGE_COLORS: Record<string, string> = {
-  Sourced: '#6b7280',
-  Screened: '#0EA2E8',
-  Submitted: '#82BC0D',
+  Submitted: '#0EA2E8',
   'Client Review': '#F9B710',
   'Interview L1': '#8b5cf6',
   'Interview L2': '#6366f1',

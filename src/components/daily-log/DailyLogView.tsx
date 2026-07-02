@@ -10,29 +10,44 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Loader2, CheckCircle2, ClipboardList, ChevronDown, ChevronUp, Plus, CheckSquare, Square, Briefcase, Target, Phone, Trash2 } from 'lucide-react'
+import {
+  Loader2, CheckCircle2, ClipboardList, ChevronDown, ChevronUp, Plus, CheckSquare,
+  Square, Briefcase, Target, Phone, Trash2, BarChart2, AlertCircle, Video,
+  TrendingUp, TrendingDown, Minus, Gift, Users,
+} from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import type { User } from '@/types'
 
 interface Props { currentUser: User }
 
 const TODAY = new Date().toISOString().split('T')[0]
+const YESTERDAY = (() => {
+  const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split('T')[0]
+})()
 
-const FIELDS = [
-  { key: 'resumes_sourced', label: 'Resumes Sourced', color: '#82BC0D', description: 'Total profiles reviewed/sourced today' },
-  { key: 'calls_made', label: 'Calls Made', color: '#0EA2E8', description: 'Candidate / client calls' },
-  { key: 'submissions_done', label: 'Submissions', color: '#F9B710', description: 'Profiles submitted to clients' },
-  { key: 'interviews_arranged', label: 'Interviews Arranged', color: '#8b5cf6', description: 'Interview slots confirmed' },
-  { key: 'offers_made', label: 'Offers', color: '#22c55e', description: 'Offer letters rolled out' },
-]
+interface OpsMetrics {
+  openPositions: number
+  submittedToday: number
+  ivsArranged: number
+  ivsDone: number
+  ivsPending: number
+  offersToday: number
+  joiningsToday: number
+  prevSubmitted: number
+  prevIvsArranged: number
+  prevIvsDone: number
+}
 
 export function DailyLogView({ currentUser }: Props) {
   const [todayLog, setTodayLog] = useState<any | null>(null)
   const [pastLogs, setPastLogs] = useState<any[]>([])
   const [teamLogs, setTeamLogs] = useState<any[]>([])
   const [tasks, setTasks] = useState<any[]>([])
-  const [openPositions, setOpenPositions] = useState(0)
-  const [todaySubmissions, setTodaySubmissions] = useState(0)
+  const [opsMetrics, setOpsMetrics] = useState<OpsMetrics>({
+    openPositions: 0, submittedToday: 0, ivsArranged: 0, ivsDone: 0, ivsPending: 0,
+    offersToday: 0, joiningsToday: 0, prevSubmitted: 0, prevIvsArranged: 0, prevIvsDone: 0,
+  })
+  const [recruiterMetrics, setRecruiterMetrics] = useState<any[]>([])
   const [recruiters, setRecruiters] = useState<User[]>([])
   const [openings, setOpenings] = useState<any[]>([])
   const [candidates, setCandidates] = useState<any[]>([])
@@ -62,12 +77,33 @@ export function DailyLogView({ currentUser }: Props) {
   const supabase = createClient()
 
   async function load() {
-    const [todayRes, pastRes, tasksRes, openPosRes, subTodayRes, callLogsRes, pipelineSubsRes] = await Promise.all([
+    const NOW = new Date().toISOString()
+    const isAdmin = ['admin', 'manager', 'super_admin'].includes(currentUser.role)
+
+    const [
+      todayRes, pastRes, tasksRes,
+      openPosRes, subTodayRes,
+      ivsArrangedRes, ivsDoneRes, ivsPendingRes,
+      offersTodayRes, joiningsTodayRes,
+      prevSubRes, prevIvsArrangedRes, prevIvsDoneRes,
+      callLogsRes, pipelineSubsRes,
+    ] = await Promise.all([
       supabase.from('daily_logs').select('*').eq('user_id', currentUser.id).eq('log_date', TODAY).single(),
       supabase.from('daily_logs').select('*, user:users(name)').eq('user_id', currentUser.id).lt('log_date', TODAY).order('log_date', { ascending: false }).limit(14),
       supabase.from('recruiter_tasks').select('*, assigned_to:users!recruiter_tasks_assigned_to_fkey(name), opening:openings(title)').or(`assigned_to.eq.${currentUser.id},assigned_by.eq.${currentUser.id}`).order('created_at', { ascending: false }),
+      // Today ops metrics
       supabase.from('openings').select('id', { count: 'exact', head: true }).eq('status', 'Open'),
-      supabase.from('submissions').select('id', { count: 'exact', head: true }).gte('created_at', TODAY),
+      supabase.from('submissions').select('id', { count: 'exact', head: true }).gte('created_at', TODAY + 'T00:00:00').lte('created_at', TODAY + 'T23:59:59'),
+      supabase.from('interviews').select('id', { count: 'exact', head: true }).eq('status', 'Scheduled').gte('scheduled_at', TODAY + 'T00:00:00').lte('scheduled_at', TODAY + 'T23:59:59'),
+      supabase.from('interviews').select('id', { count: 'exact', head: true }).eq('status', 'Completed').gte('scheduled_at', TODAY + 'T00:00:00').lte('scheduled_at', TODAY + 'T23:59:59'),
+      supabase.from('interviews').select('id', { count: 'exact', head: true }).eq('status', 'Scheduled').lt('scheduled_at', NOW),
+      supabase.from('submissions').select('id', { count: 'exact', head: true }).eq('stage', 'Offer').gte('stage_entered_at', TODAY + 'T00:00:00'),
+      supabase.from('submissions').select('id', { count: 'exact', head: true }).eq('stage', 'Joined').gte('stage_entered_at', TODAY + 'T00:00:00'),
+      // Yesterday (for delta)
+      supabase.from('submissions').select('id', { count: 'exact', head: true }).gte('created_at', YESTERDAY + 'T00:00:00').lte('created_at', YESTERDAY + 'T23:59:59'),
+      supabase.from('interviews').select('id', { count: 'exact', head: true }).eq('status', 'Scheduled').gte('scheduled_at', YESTERDAY + 'T00:00:00').lte('scheduled_at', YESTERDAY + 'T23:59:59'),
+      supabase.from('interviews').select('id', { count: 'exact', head: true }).eq('status', 'Completed').gte('scheduled_at', YESTERDAY + 'T00:00:00').lte('scheduled_at', YESTERDAY + 'T23:59:59'),
+      // Call log + pipeline subs (scoped to current user)
       supabase.from('call_logs').select('*').eq('user_id', currentUser.id).eq('log_date', TODAY).order('created_at', { ascending: false }),
       supabase.from('submissions').select('id, stage, candidate:candidates(name), opening:openings(title)').eq('recruiter_id', currentUser.id).gte('created_at', TODAY + 'T00:00:00').lte('created_at', TODAY + 'T23:59:59'),
     ])
@@ -79,24 +115,58 @@ export function DailyLogView({ currentUser }: Props) {
     }
     setPastLogs(pastRes.data ?? [])
     setTasks(tasksRes.data ?? [])
-    setOpenPositions(openPosRes.count ?? 0)
-    setTodaySubmissions(subTodayRes.count ?? 0)
     setCallLogs(callLogsRes.data ?? [])
     setTodayPipelineSubmissions(pipelineSubsRes.data ?? [])
+    setOpsMetrics({
+      openPositions: openPosRes.count ?? 0,
+      submittedToday: subTodayRes.count ?? 0,
+      ivsArranged: ivsArrangedRes.count ?? 0,
+      ivsDone: ivsDoneRes.count ?? 0,
+      ivsPending: ivsPendingRes.count ?? 0,
+      offersToday: offersTodayRes.count ?? 0,
+      joiningsToday: joiningsTodayRes.count ?? 0,
+      prevSubmitted: prevSubRes.count ?? 0,
+      prevIvsArranged: prevIvsArrangedRes.count ?? 0,
+      prevIvsDone: prevIvsDoneRes.count ?? 0,
+    })
 
-    if (currentUser.role === 'admin' || currentUser.role === 'manager') {
-      const [teamRes, recruitersRes, openingsRes, candidatesRes, clientsRes] = await Promise.all([
+    if (isAdmin) {
+      const [teamRes, recruitersRes, openingsRes, candidatesRes, clientsRes, allSubsTodayRes, allIvsTodayRes] = await Promise.all([
         supabase.from('daily_logs').select('*, user:users(id, name)').eq('log_date', TODAY).order('created_at', { ascending: false }),
         supabase.from('users').select('*').in('role', ['recruiter', 'manager']).order('name'),
         supabase.from('openings').select('id, title, client:clients(name)').eq('status', 'Open').order('created_at', { ascending: false }),
         supabase.from('candidates').select('id, name, current_employer').order('name').limit(200),
         supabase.from('clients').select('id, name').order('name'),
+        supabase.from('submissions').select('recruiter_id, recruiter:users(name)').gte('created_at', TODAY + 'T00:00:00').lte('created_at', TODAY + 'T23:59:59'),
+        supabase.from('interviews').select('status, submission:submissions(recruiter_id, recruiter:users(name))').gte('scheduled_at', TODAY + 'T00:00:00').lte('scheduled_at', TODAY + 'T23:59:59'),
       ])
       setTeamLogs(teamRes.data ?? [])
       setRecruiters((recruitersRes.data as User[]) ?? [])
       setOpenings(openingsRes.data ?? [])
       setCandidates(candidatesRes.data ?? [])
       setClients(clientsRes.data ?? [])
+
+      // Aggregate per-recruiter breakdown
+      const byRecruiter: Record<string, { name: string; submitted: number; ivsArranged: number; ivsDone: number }> = {}
+      for (const sub of (allSubsTodayRes.data ?? [])) {
+        const rid = sub.recruiter_id
+        const rname = Array.isArray(sub.recruiter) ? sub.recruiter[0]?.name : (sub.recruiter as any)?.name
+        if (rid) {
+          if (!byRecruiter[rid]) byRecruiter[rid] = { name: rname ?? rid, submitted: 0, ivsArranged: 0, ivsDone: 0 }
+          byRecruiter[rid].submitted++
+        }
+      }
+      for (const iv of (allIvsTodayRes.data ?? [])) {
+        const sub = Array.isArray(iv.submission) ? iv.submission[0] : iv.submission as any
+        const rid = sub?.recruiter_id
+        const rname = Array.isArray(sub?.recruiter) ? sub.recruiter[0]?.name : sub?.recruiter?.name
+        if (rid) {
+          if (!byRecruiter[rid]) byRecruiter[rid] = { name: rname ?? rid, submitted: 0, ivsArranged: 0, ivsDone: 0 }
+          if (iv.status === 'Scheduled') byRecruiter[rid].ivsArranged++
+          if (iv.status === 'Completed') byRecruiter[rid].ivsDone++
+        }
+      }
+      setRecruiterMetrics(Object.entries(byRecruiter).map(([id, m]) => ({ id, ...m })))
     }
 
     setLoading(false)
@@ -133,15 +203,10 @@ export function DailyLogView({ currentUser }: Props) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     await supabase.from('recruiter_tasks').insert({
-      assigned_by: user.id,
-      assigned_to: taskForm.assigned_to,
-      title: taskForm.title,
-      description: taskForm.description || null,
-      due_date: taskForm.due_date || null,
-      opening_id: taskForm.opening_id || null,
-      task_type: taskForm.task_type,
-      priority: taskForm.priority,
-      candidate_id: taskForm.candidate_id || null,
+      assigned_by: user.id, assigned_to: taskForm.assigned_to, title: taskForm.title,
+      description: taskForm.description || null, due_date: taskForm.due_date || null,
+      opening_id: taskForm.opening_id || null, task_type: taskForm.task_type,
+      priority: taskForm.priority, candidate_id: taskForm.candidate_id || null,
       client_id: taskForm.client_id || null,
     })
     setTaskForm({ assigned_to: '', title: '', description: '', due_date: '', opening_id: '', task_type: 'Other', priority: 'Medium', candidate_id: '', client_id: '' })
@@ -156,13 +221,9 @@ export function DailyLogView({ currentUser }: Props) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     const { data } = await supabase.from('call_logs').insert({
-      user_id: user.id,
-      log_date: TODAY,
-      contact_name: callForm.contact_name,
-      contact_type: callForm.contact_type,
-      call_type: callForm.call_type,
-      outcome: callForm.outcome,
-      follow_up_required: callForm.follow_up_required,
+      user_id: user.id, log_date: TODAY, contact_name: callForm.contact_name,
+      contact_type: callForm.contact_type, call_type: callForm.call_type,
+      outcome: callForm.outcome, follow_up_required: callForm.follow_up_required,
       notes: callForm.notes || null,
     }).select().single()
     setCallLogs(prev => [data, ...prev])
@@ -184,37 +245,109 @@ export function DailyLogView({ currentUser }: Props) {
 
   const pendingTasks = tasks.filter(t => !t.is_done)
   const doneTasks = tasks.filter(t => t.is_done)
+  const isAdmin = ['admin', 'manager', 'super_admin'].includes(currentUser.role)
 
   if (loading) return <div className="flex items-center justify-center h-48"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
+
+  const metricTiles = [
+    { label: 'Open Mandates', value: opsMetrics.openPositions, prev: null, icon: Briefcase, color: '#0EA2E8', desc: 'Positions to work on' },
+    { label: 'Submitted Today', value: opsMetrics.submittedToday, prev: opsMetrics.prevSubmitted, icon: Target, color: '#F9B710', desc: 'Resumes sent to clients' },
+    { label: 'IVs Arranged', value: opsMetrics.ivsArranged, prev: opsMetrics.prevIvsArranged, icon: Video, color: '#8b5cf6', desc: 'Interviews scheduled today' },
+    { label: 'IVs Done', value: opsMetrics.ivsDone, prev: opsMetrics.prevIvsDone, icon: CheckCircle2, color: '#82BC0D', desc: 'Interviews completed today' },
+    { label: 'Offers Made', value: opsMetrics.offersToday, prev: null, icon: Gift, color: '#f97316', desc: 'Moved to Offer today' },
+    { label: 'Joinings', value: opsMetrics.joiningsToday, prev: null, icon: Users, color: '#22c55e', desc: 'Confirmed joins today' },
+  ]
 
   return (
     <div className="space-y-6 max-w-4xl">
 
-      {/* Priority snapshot */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Briefcase className="h-4 w-4 text-[#0EA2E8]" />
-            <span className="text-xs text-gray-500">Open Positions</span>
+      {/* Live Pipeline Metrics */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <BarChart2 className="h-4 w-4 text-[#0EA2E8]" />
+            <h2 className="text-sm font-semibold text-[#1A1A2E]">Live Pipeline Metrics — {formatDate(TODAY)}</h2>
           </div>
-          <p className="text-3xl font-bold text-[#1A1A2E]">{openPositions}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Active mandates today</p>
+          <span className="text-xs text-gray-400">Auto-populated · arrows vs yesterday</span>
         </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Target className="h-4 w-4 text-[#F9B710]" />
-            <span className="text-xs text-gray-500">Submitted Today</span>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {metricTiles.map(tile => {
+            const Icon = tile.icon
+            const diff = tile.prev !== null ? tile.value - tile.prev : null
+            return (
+              <div key={tile.label} className="rounded-xl border border-gray-200 bg-white p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: tile.color + '18' }}>
+                    <Icon className="h-3.5 w-3.5" style={{ color: tile.color }} />
+                  </div>
+                  {diff !== null && diff !== 0 && (
+                    <span className={`text-[10px] font-bold flex items-center gap-0.5 ${diff > 0 ? 'text-[#82BC0D]' : 'text-red-500'}`}>
+                      {diff > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                      {diff > 0 ? '+' : ''}{diff}
+                    </span>
+                  )}
+                  {diff === 0 && tile.prev !== null && <Minus className="h-3 w-3 text-gray-300" />}
+                </div>
+                <p className="text-2xl font-bold text-[#1A1A2E] tabular-nums">{tile.value}</p>
+                <p className="text-[11px] text-gray-600 font-medium mt-0.5 leading-tight">{tile.label}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{tile.desc}</p>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Overdue interviews alert */}
+        {opsMetrics.ivsPending > 0 && (
+          <div className="mt-3 flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-50 border border-red-100">
+            <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
+            <span className="text-sm text-red-700 font-medium">
+              {opsMetrics.ivsPending} interview{opsMetrics.ivsPending > 1 ? 's' : ''} past scheduled time without completion — follow up needed.
+            </span>
           </div>
-          <p className="text-3xl font-bold text-[#1A1A2E]">{todaySubmissions}</p>
-          <p className="text-xs text-gray-400 mt-0.5">vs {openPositions} open</p>
-        </div>
+        )}
+      </div>
+
+      {/* Per-recruiter metrics (admin/manager) */}
+      {isAdmin && recruiterMetrics.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Users className="h-4 w-4 text-[#82BC0D]" /> Recruiter Breakdown — Today
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  {['Recruiter', 'Submitted', 'IVs Arranged', 'IVs Done'].map(h => (
+                    <th key={h} className={`text-xs font-medium text-gray-500 pb-2 ${h === 'Recruiter' ? 'text-left' : 'text-center'}`}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {recruiterMetrics.map(r => (
+                  <tr key={r.id}>
+                    <td className="py-2.5 text-sm font-medium text-[#1A1A2E]">{r.name}</td>
+                    <td className="py-2.5 text-center text-sm font-bold" style={{ color: '#F9B710' }}>{r.submitted}</td>
+                    <td className="py-2.5 text-center text-sm font-bold" style={{ color: '#8b5cf6' }}>{r.ivsArranged}</td>
+                    <td className="py-2.5 text-center text-sm font-bold" style={{ color: '#82BC0D' }}>{r.ivsDone}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Log status + tasks pending quick stats */}
+      <div className="grid grid-cols-2 gap-3">
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <div className="flex items-center gap-2 mb-1">
             <CheckSquare className="h-4 w-4 text-[#82BC0D]" />
             <span className="text-xs text-gray-500">Tasks Pending</span>
           </div>
           <p className="text-3xl font-bold text-[#1A1A2E]">{pendingTasks.length}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{doneTasks.length} done</p>
+          <p className="text-xs text-gray-400 mt-0.5">{doneTasks.length} completed</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <div className="flex items-center gap-2 mb-1">
@@ -233,10 +366,9 @@ export function DailyLogView({ currentUser }: Props) {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-base">
-              <CheckSquare className="h-4 w-4 text-[#82BC0D]" />
-              Tasks
+              <CheckSquare className="h-4 w-4 text-[#82BC0D]" /> Tasks
             </CardTitle>
-            {(currentUser.role === 'admin' || currentUser.role === 'manager') && (
+            {isAdmin && (
               <Button variant="outline" size="sm" onClick={() => setShowTaskForm(true)}>
                 <Plus className="h-3.5 w-3.5" /> Assign Task
               </Button>
@@ -315,8 +447,7 @@ export function DailyLogView({ currentUser }: Props) {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Phone className="h-4 w-4 text-[#0EA2E8]" />
-              Call Log — Today
+              <Phone className="h-4 w-4 text-[#0EA2E8]" /> Call Log — Today
             </CardTitle>
             <Button variant="outline" size="sm" onClick={() => setShowCallForm(v => !v)}>
               <Plus className="h-3.5 w-3.5" /> Log Call
@@ -335,9 +466,7 @@ export function DailyLogView({ currentUser }: Props) {
                   <Label className="text-xs">Contact Type</Label>
                   <Select value={callForm.contact_type} onValueChange={v => setCallForm(f => ({ ...f, contact_type: v }))}>
                     <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {['Candidate', 'Client'].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                    </SelectContent>
+                    <SelectContent>{['Candidate', 'Client'].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
               </div>
@@ -346,18 +475,14 @@ export function DailyLogView({ currentUser }: Props) {
                   <Label className="text-xs">Call Type</Label>
                   <Select value={callForm.call_type} onValueChange={v => setCallForm(f => ({ ...f, call_type: v }))}>
                     <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {['Sourcing', 'Screening', 'Offer', 'Feedback', 'General'].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                    </SelectContent>
+                    <SelectContent>{['Sourcing', 'Screening', 'Offer', 'Feedback', 'General'].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Outcome</Label>
                   <Select value={callForm.outcome} onValueChange={v => setCallForm(f => ({ ...f, outcome: v }))}>
                     <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {['Interested', 'Not Interested', 'Callback Required', 'Accepted', 'Rejected', 'Other'].map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-                    </SelectContent>
+                    <SelectContent>{['Interested', 'Not Interested', 'Callback Required', 'Accepted', 'Rejected', 'Other'].map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
               </div>
@@ -406,13 +531,12 @@ export function DailyLogView({ currentUser }: Props) {
         </CardContent>
       </Card>
 
-      {/* Today's log form */}
+      {/* Today's activity log (manual notes + blockers) */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-base">
-              <ClipboardList className="h-4 w-4 text-[#82BC0D]" />
-              Today's Activity Log
+              <ClipboardList className="h-4 w-4 text-[#82BC0D]" /> Notes & Blockers
             </CardTitle>
             <div className="flex items-center gap-2">
               <Badge variant={todayLog ? 'green' : 'default'}>{todayLog ? 'Logged' : 'Not yet logged'}</Badge>
@@ -421,34 +545,15 @@ export function DailyLogView({ currentUser }: Props) {
           </div>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSave} className="space-y-6">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              {FIELDS.map(field => (
-                <div key={field.key} className="space-y-1.5">
-                  <Label className="text-xs text-gray-500">{field.label}</Label>
-                  <div className="flex items-center gap-2">
-                    <button type="button" className="w-7 h-7 rounded border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 text-lg font-medium"
-                      onClick={() => setForm(f => ({ ...f, [field.key]: Math.max(0, (f[field.key as keyof typeof f] as number) - 1) }))}>−</button>
-                    <div className="flex-1 text-center">
-                      <span className="text-2xl font-bold tabular-nums" style={{ color: field.color }}>
-                        {form[field.key as keyof typeof form] as number}
-                      </span>
-                    </div>
-                    <button type="button" className="w-7 h-7 rounded border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 text-lg font-medium"
-                      onClick={() => setForm(f => ({ ...f, [field.key]: (f[field.key as keyof typeof f] as number) + 1 }))}>+</button>
-                  </div>
-                  <p className="text-[10px] text-gray-400">{field.description}</p>
-                </div>
-              ))}
-            </div>
+          <form onSubmit={handleSave} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Notes / Highlights</Label>
-                <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Key wins, progress, pipeline updates..." className="h-24" />
+                <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Key wins, progress, pipeline updates..." className="h-28" />
               </div>
               <div className="space-y-1.5">
                 <Label>Blockers</Label>
-                <Textarea value={form.blockers} onChange={e => setForm(f => ({ ...f, blockers: e.target.value }))} placeholder="What's slowing you down today?" className="h-24" />
+                <Textarea value={form.blockers} onChange={e => setForm(f => ({ ...f, blockers: e.target.value }))} placeholder="What's slowing you down today?" className="h-28" />
               </div>
             </div>
             <div className="flex items-center justify-between">
@@ -463,8 +568,8 @@ export function DailyLogView({ currentUser }: Props) {
         </CardContent>
       </Card>
 
-      {/* Team logs */}
-      {(currentUser.role === 'admin' || currentUser.role === 'manager') && teamLogs.length > 0 && (
+      {/* Team logs (admin) */}
+      {isAdmin && teamLogs.length > 0 && (
         <Card>
           <CardHeader><CardTitle className="text-sm">Team Activity Today</CardTitle></CardHeader>
           <CardContent>
@@ -534,18 +639,14 @@ export function DailyLogView({ currentUser }: Props) {
                   <Label>Assign To *</Label>
                   <Select value={taskForm.assigned_to} onValueChange={v => setTaskForm(f => ({ ...f, assigned_to: v }))}>
                     <SelectTrigger><SelectValue placeholder="Select recruiter..." /></SelectTrigger>
-                    <SelectContent>
-                      {recruiters.map(r => <SelectItem key={r.id} value={r.id}>{r.name} ({r.role})</SelectItem>)}
-                    </SelectContent>
+                    <SelectContent>{recruiters.map(r => <SelectItem key={r.id} value={r.id}>{r.name} ({r.role})</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Priority</Label>
                   <Select value={taskForm.priority} onValueChange={v => setTaskForm(f => ({ ...f, priority: v }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {['High', 'Medium', 'Low'].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                    </SelectContent>
+                    <SelectContent>{['High', 'Medium', 'Low'].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
               </div>

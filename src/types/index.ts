@@ -1,11 +1,9 @@
-export type UserRole = 'admin' | 'manager' | 'recruiter' | 'viewer'
+export type UserRole = 'super_admin' | 'admin' | 'manager' | 'recruiter' | 'viewer'
 
 export type HealthStatus = 'green' | 'amber' | 'red'
 export type EngagementType = 'Permanent' | 'Contract' | 'C2H' | 'C2C'
 export type OpeningStatus = 'Open' | 'On Hold' | 'Closed'
 export type SubmissionStage =
-  | 'Sourced'
-  | 'Screened'
   | 'Submitted'
   | 'Client Review'
   | 'Interview L1'
@@ -72,6 +70,10 @@ export interface Candidate {
   id: string
   name: string
   current_employer: string
+  current_company: string | null
+  client_submitted_to: string | null
+  opening_submitted_to: string | null
+  notice_period: string | null
   ctc_current: number
   ctc_expected: number
   source: string

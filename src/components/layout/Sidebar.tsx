@@ -12,16 +12,16 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['admin', 'manager', 'recruiter', 'viewer'] },
-  { href: '/clients', label: 'Clients', icon: Building2, roles: ['admin', 'manager', 'recruiter'] },
-  { href: '/openings', label: 'Openings', icon: Briefcase, roles: ['admin', 'manager', 'recruiter'] },
-  { href: '/candidates', label: 'Candidates', icon: Users, roles: ['admin', 'manager', 'recruiter'] },
-  { href: '/daily-log', label: 'Daily Log', icon: ClipboardList, roles: ['admin', 'manager', 'recruiter'] },
-  { href: '/pipeline', label: 'Pipeline', icon: Radar, roles: ['admin', 'manager'] },
-  { href: '/productivity', label: 'Productivity', icon: BarChart3, roles: ['admin', 'manager'] },
-  { href: '/reports', label: 'Reports', icon: FileText, roles: ['admin', 'manager'] },
-  { href: '/hrms', label: 'HRMS', icon: HeartPulse, roles: ['admin', 'manager', 'recruiter'] },
-  { href: '/settings', label: 'Settings', icon: Settings, roles: ['admin'] },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['super_admin', 'admin', 'manager', 'recruiter', 'viewer'] },
+  { href: '/clients', label: 'Clients', icon: Building2, roles: ['super_admin', 'admin', 'manager', 'recruiter'] },
+  { href: '/openings', label: 'Openings', icon: Briefcase, roles: ['super_admin', 'admin', 'manager', 'recruiter'] },
+  { href: '/candidates', label: 'Candidates', icon: Users, roles: ['super_admin', 'admin', 'manager', 'recruiter'] },
+  { href: '/daily-log', label: 'Daily Log', icon: ClipboardList, roles: ['super_admin', 'admin', 'manager', 'recruiter'] },
+  { href: '/pipeline', label: 'Pipeline', icon: Radar, roles: ['super_admin', 'admin', 'manager'] },
+  { href: '/productivity', label: 'Productivity', icon: BarChart3, roles: ['super_admin', 'admin', 'manager'] },
+  { href: '/reports', label: 'Reports', icon: FileText, roles: ['super_admin', 'admin', 'manager'] },
+  { href: '/hrms', label: 'HRMS', icon: HeartPulse, roles: ['super_admin', 'admin', 'manager', 'recruiter'] },
+  { href: '/settings', label: 'Settings', icon: Settings, roles: ['super_admin', 'admin'] },
 ]
 
 interface SidebarProps {

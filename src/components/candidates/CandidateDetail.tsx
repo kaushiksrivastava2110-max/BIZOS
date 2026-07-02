@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CandidateForm } from './CandidateForm'
 import { InterviewForm } from './InterviewForm'
+import { CandidateSubmissionsPanel } from './CandidateSubmissionsPanel'
 import { Pencil, Trash2, FileText, ExternalLink, Star, TrendingUp } from 'lucide-react'
 import { formatCurrency, formatDate, timeAgo, STAGE_COLORS } from '@/lib/utils'
 import type { User } from '@/types'
@@ -54,7 +55,10 @@ export function CandidateDetail({ candidate, currentUser }: Props) {
             </div>
             <div>
               <h1 className="text-xl font-bold text-[#1A1A2E]">{candidate.name}</h1>
-              <p className="text-sm text-gray-500">{candidate.current_employer}</p>
+              <p className="text-sm text-gray-500">
+                {candidate.current_company || candidate.current_employer}
+                {candidate.notice_period && <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">{candidate.notice_period}</span>}
+              </p>
             </div>
           </div>
         </div>
@@ -156,57 +160,12 @@ export function CandidateDetail({ candidate, currentUser }: Props) {
         </div>
       </div>
 
-      {/* Submissions & Interview timeline */}
-      {(candidate.submissions ?? []).length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Pipeline & Interviews</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {(candidate.submissions ?? []).map((sub: any) => (
-              <div key={sub.id} className="border border-gray-100 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <Link href={`/openings/${sub.opening?.id}`} className="text-sm font-medium text-[#0EA2E8] hover:underline">
-                      {sub.opening?.title}
-                    </Link>
-                    <p className="text-xs text-gray-500">{sub.opening?.clients?.name}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge style={{ backgroundColor: STAGE_COLORS[sub.stage] + '20', color: STAGE_COLORS[sub.stage] }}>
-                      {sub.stage}
-                    </Badge>
-                    {canEdit && (
-                      <Button variant="outline" size="icon-sm" onClick={() => setShowInterviewForm(sub.id)}>
-                        <span className="text-xs">+Interview</span>
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Interviews */}
-                {(sub.interviews ?? []).length > 0 && (
-                  <div className="space-y-2 border-t border-gray-50 pt-3">
-                    {(sub.interviews ?? []).map((iv: any) => (
-                      <div key={iv.id} className="flex items-center justify-between text-xs">
-                        <span className="text-gray-600">Round {iv.round} · {formatDate(iv.scheduled_at)}</span>
-                        <div className="flex items-center gap-2">
-                          <Badge variant={iv.status === 'Completed' ? 'green' : iv.status === 'Scheduled' ? 'blue' : 'red'}>
-                            {iv.status}
-                          </Badge>
-                          {iv.feedback_score && (
-                            <span className="text-gray-500 font-medium">{iv.feedback_score}/10</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+      {/* Client Submissions Panel — stage change + notes from candidate profile */}
+      <CandidateSubmissionsPanel
+        candidateId={candidate.id}
+        candidateName={candidate.name}
+        currentUser={currentUser}
+      />
 
       {confirmDelete && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">

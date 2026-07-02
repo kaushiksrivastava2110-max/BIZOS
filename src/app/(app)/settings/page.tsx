@@ -12,7 +12,7 @@ export default async function SettingsPage() {
   if (!authUser) redirect('/login')
   const { data: profile } = await supabase.from('users').select('*').eq('id', authUser.id).single()
   if (!profile) redirect('/login')
-  if (profile.role !== 'admin') redirect('/dashboard')
+  if (!['admin', 'super_admin'].includes(profile.role)) redirect('/dashboard')
 
   return (
     <div className="flex flex-col flex-1">

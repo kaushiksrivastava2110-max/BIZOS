@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Loader2 } from 'lucide-react'
 import type { User } from '@/types'
 
@@ -28,15 +29,20 @@ interface Props {
 export function CandidateForm({ currentUser, candidate, onClose, onSaved }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [clients, setClients] = useState<any[]>([])
+  const [openings, setOpenings] = useState<any[]>([])
+  const [selectedClient, setSelectedClient] = useState(candidate?.client_submitted_to ?? '')
   const [form, setForm] = useState({
     name: candidate?.name ?? '',
-    current_employer: candidate?.current_employer ?? '',
+    current_company: candidate?.current_company ?? candidate?.current_employer ?? '',
+    notice_period: candidate?.notice_period ?? '',
     ctc_current: candidate?.ctc_current?.toString() ?? '',
     ctc_expected: candidate?.ctc_expected?.toString() ?? '',
     source: candidate?.source ?? '',
     market_fit_score: candidate?.market_fit_score?.toString() ?? '50',
     market_fit_notes: candidate?.market_fit_notes ?? '',
     resume_url: candidate?.resume_url ?? '',
+    opening_submitted_to: candidate?.opening_submitted_to ?? '',
   })
   const [scores, setScores] = useState({
     sc_skills_match: candidate?.sc_skills_match ?? 10,
@@ -46,6 +52,16 @@ export function CandidateForm({ currentUser, candidate, onClose, onSaved }: Prop
     sc_compensation_fit: candidate?.sc_compensation_fit ?? 10,
   })
   const supabase = createClient()
+
+  useEffect(() => {
+    supabase.from('clients').select('id, name').order('name').then(({ data }) => setClients(data ?? []))
+  }, [])
+
+  useEffect(() => {
+    if (!selectedClient) { setOpenings([]); return }
+    supabase.from('openings').select('id, title').eq('client_id', selectedClient).eq('status', 'Open').order('created_at', { ascending: false })
+      .then(({ data }) => setOpenings(data ?? []))
+  }, [selectedClient])
 
   const scorecard_total = Object.values(scores).reduce((a, b) => a + b, 0)
 
@@ -59,11 +75,14 @@ export function CandidateForm({ currentUser, candidate, onClose, onSaved }: Prop
 
     const payload = {
       ...form,
+      current_employer: form.current_company, // keep backward compat
       ctc_current: parseFloat(form.ctc_current) || 0,
       ctc_expected: parseFloat(form.ctc_expected) || 0,
       market_fit_score: parseInt(form.market_fit_score) || 0,
       scorecard_total,
       ...scores,
+      client_submitted_to: selectedClient || null,
+      opening_submitted_to: form.opening_submitted_to || null,
       added_by_id: candidate ? candidate.added_by_id : user.id,
     }
 
@@ -82,6 +101,22 @@ export function CandidateForm({ currentUser, candidate, onClose, onSaved }: Prop
           actor_id: user.id, entity_type: 'candidate', entity_id: newC.id,
           action: 'created_candidate', notes: `Added candidate: ${form.name}`,
         })
+
+        // Auto-create Submission if an opening was selected
+        if (form.opening_submitted_to) {
+          await supabase.from('submissions').insert({
+            candidate_id: newC.id,
+            opening_id: form.opening_submitted_to,
+            stage: 'Submitted',
+            stage_entered_at: new Date().toISOString(),
+            recruiter_id: user.id,
+          })
+          await supabase.from('activity_logs').insert({
+            actor_id: user.id, entity_type: 'submission', entity_id: newC.id,
+            action: 'auto_submitted',
+            notes: `${form.name} auto-placed in Submitted stage for selected opening`,
+          })
+        }
       }
     }
 
@@ -96,14 +131,31 @@ export function CandidateForm({ currentUser, candidate, onClose, onSaved }: Prop
           <DialogTitle>{candidate ? 'Edit Candidate' : 'New Candidate'}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-5">
+
+          {/* Core details */}
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2 space-y-1.5">
               <Label>Full Name *</Label>
               <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="John Smith" required />
             </div>
             <div className="col-span-2 space-y-1.5">
-              <Label>Current Employer</Label>
-              <Input value={form.current_employer} onChange={e => setForm(f => ({ ...f, current_employer: e.target.value }))} placeholder="Infosys Ltd" />
+              <Label>Current Company</Label>
+              <Input value={form.current_company} onChange={e => setForm(f => ({ ...f, current_company: e.target.value }))} placeholder="Infosys, TCS, Wipro..." />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Notice Period</Label>
+              <Select value={form.notice_period} onValueChange={v => setForm(f => ({ ...f, notice_period: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                <SelectContent>
+                  {['Immediate', '15 days', '30 days', '45 days', '60 days', '90 days', 'Serving notice'].map(n => (
+                    <SelectItem key={n} value={n}>{n}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Source</Label>
+              <Input value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))} placeholder="Naukri, LinkedIn, Referral..." />
             </div>
             <div className="space-y-1.5">
               <Label>Current CTC (₹)</Label>
@@ -114,14 +166,38 @@ export function CandidateForm({ currentUser, candidate, onClose, onSaved }: Prop
               <Input type="number" value={form.ctc_expected} onChange={e => setForm(f => ({ ...f, ctc_expected: e.target.value }))} placeholder="2000000" />
             </div>
             <div className="space-y-1.5">
-              <Label>Source</Label>
-              <Input value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))} placeholder="Naukri, LinkedIn, Referral..." />
-            </div>
-            <div className="space-y-1.5">
               <Label>Resume URL</Label>
               <Input value={form.resume_url} onChange={e => setForm(f => ({ ...f, resume_url: e.target.value }))} placeholder="https://..." />
             </div>
           </div>
+
+          {/* Client submission */}
+          {!candidate && (
+            <div className="rounded-lg border border-[#0EA2E8]/20 bg-[#0EA2E8]/5 p-4 space-y-3">
+              <p className="text-xs font-semibold text-[#0EA2E8] uppercase tracking-wide">Submitted To</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Client *</Label>
+                  <Select value={selectedClient} onValueChange={v => { setSelectedClient(v); setForm(f => ({ ...f, opening_submitted_to: '' })) }}>
+                    <SelectTrigger><SelectValue placeholder="Select client..." /></SelectTrigger>
+                    <SelectContent>
+                      {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Opening / Position</Label>
+                  <Select value={form.opening_submitted_to} onValueChange={v => setForm(f => ({ ...f, opening_submitted_to: v }))} disabled={!selectedClient || openings.length === 0}>
+                    <SelectTrigger><SelectValue placeholder={!selectedClient ? 'Select client first' : openings.length === 0 ? 'No open positions' : 'Select opening...'} /></SelectTrigger>
+                    <SelectContent>
+                      {openings.map(o => <SelectItem key={o.id} value={o.id}>{o.title}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">Selecting an opening auto-places this candidate in the pipeline at "Submitted" stage.</p>
+            </div>
+          )}
 
           {/* Scorecard */}
           <div className="rounded-lg border border-gray-200 p-4 space-y-4">
@@ -144,9 +220,7 @@ export function CandidateForm({ currentUser, candidate, onClose, onSaved }: Prop
                   </span>
                 </div>
                 <input
-                  type="range"
-                  min="0"
-                  max={field.max}
+                  type="range" min="0" max={field.max}
                   value={scores[field.key as keyof typeof scores]}
                   onChange={e => setScores(s => ({ ...s, [field.key]: parseInt(e.target.value) }))}
                   className="w-full h-2 accent-[#82BC0D] cursor-pointer"
@@ -158,13 +232,11 @@ export function CandidateForm({ currentUser, candidate, onClose, onSaved }: Prop
           {/* Market fit */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Label>Market Fit Score (0-100)</Label>
+              <Label>Market Fit Score (0–100)</Label>
               <span className="text-sm font-bold text-[#1A1A2E]">{form.market_fit_score}</span>
             </div>
             <input
-              type="range"
-              min="0"
-              max="100"
+              type="range" min="0" max="100"
               value={form.market_fit_score}
               onChange={e => setForm(f => ({ ...f, market_fit_score: e.target.value }))}
               className="w-full h-2 accent-[#0EA2E8] cursor-pointer"

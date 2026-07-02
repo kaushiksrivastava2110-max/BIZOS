@@ -10,16 +10,25 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Loader2, Pencil, Trash2, Plus, UserPlus, Save } from 'lucide-react'
+import { Loader2, Pencil, Trash2, UserPlus, Save, ShieldAlert } from 'lucide-react'
 import type { User, UserRole } from '@/types'
 
 interface Props { currentUser: User }
 
-const ROLE_BADGE: Record<UserRole, 'green' | 'blue' | 'yellow' | 'default'> = {
-  admin: 'green',
-  manager: 'blue',
-  recruiter: 'yellow',
-  viewer: 'default',
+const ROLE_BADGE: Record<string, string> = {
+  super_admin: 'bg-amber-100 text-amber-700 border-amber-200',
+  admin: 'bg-green-100 text-green-700 border-green-200',
+  manager: 'bg-blue-100 text-blue-700 border-blue-200',
+  recruiter: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+  viewer: 'bg-gray-100 text-gray-600 border-gray-200',
+}
+
+const ROLE_LABEL: Record<string, string> = {
+  super_admin: 'Super Admin',
+  admin: 'Admin',
+  manager: 'Manager',
+  recruiter: 'Recruiter',
+  viewer: 'Viewer',
 }
 
 export function SettingsView({ currentUser }: Props) {
@@ -31,9 +40,12 @@ export function SettingsView({ currentUser }: Props) {
   const [confirmDeleteUser, setConfirmDeleteUser] = useState<User | null>(null)
   const supabase = createClient()
 
+  const isSuperAdmin = currentUser.role === 'super_admin'
+
   async function loadUsers() {
+    setLoadingUsers(true)
     const { data } = await supabase.from('users').select('*').order('name')
-    setUsers(data as User[] ?? [])
+    setUsers((data as User[]) ?? [])
     setLoadingUsers(false)
   }
 
@@ -47,8 +59,20 @@ export function SettingsView({ currentUser }: Props) {
     loadSettings()
   }, [])
 
+  function canEdit(target: User) {
+    if (target.id === currentUser.id) return false
+    if (target.role === 'super_admin' && !isSuperAdmin) return false
+    return true
+  }
+
+  function canDelete(target: User) {
+    if (target.id === currentUser.id) return false
+    if (target.role === 'super_admin') return false
+    if (!isSuperAdmin && target.role === 'admin') return false
+    return true
+  }
+
   async function handleDeleteUser(user: User) {
-    // Delete from auth (via admin API route) and from users table
     const res = await fetch('/api/users/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -66,20 +90,32 @@ export function SettingsView({ currentUser }: Props) {
     }
   }
 
+  const roleOrder = ['super_admin', 'admin', 'manager', 'recruiter', 'viewer']
+  const sortedUsers = [...users].sort((a, b) => roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role))
+
   return (
     <div className="space-y-6 max-w-4xl">
       <Tabs defaultValue="users">
         <TabsList>
-          <TabsTrigger value="users">Users & Roles</TabsTrigger>
+          <TabsTrigger value="users">Users &amp; Roles</TabsTrigger>
           <TabsTrigger value="thresholds">Alert Thresholds</TabsTrigger>
+          {isSuperAdmin && <TabsTrigger value="super">Super Admin</TabsTrigger>}
         </TabsList>
 
         {/* Users tab */}
         <TabsContent value="users" className="space-y-4">
-          <div className="flex justify-end">
-            <Button variant="primary" size="sm" onClick={() => setShowCreateUser(true)}>
-              <UserPlus className="h-4 w-4" /> Invite User
-            </Button>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            {isSuperAdmin && (
+              <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg">
+                <ShieldAlert className="h-4 w-4 shrink-0" />
+                Super Admin mode — you can view and edit all users including other admins.
+              </div>
+            )}
+            <div className="ml-auto">
+              <Button variant="primary" size="sm" onClick={() => setShowCreateUser(true)}>
+                <UserPlus className="h-4 w-4" /> Invite User
+              </Button>
+            </div>
           </div>
 
           {loadingUsers ? (
@@ -96,41 +132,45 @@ export function SettingsView({ currentUser }: Props) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {users.map(u => {
+                  {sortedUsers.map(u => {
                     const teamLead = u.team_lead_id ? users.find(x => x.id === u.team_lead_id) : null
+                    const isMe = u.id === currentUser.id
                     return (
-                      <tr key={u.id} className="hover:bg-gray-50 group">
+                      <tr key={u.id} className={`hover:bg-gray-50 group ${u.role === 'super_admin' ? 'bg-amber-50/40' : ''}`}>
                         <td className="px-5 py-3.5">
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-[#82BC0D] flex items-center justify-center text-white text-xs font-bold shrink-0">
-                              {u.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${u.role === 'super_admin' ? 'bg-amber-500' : 'bg-[#82BC0D]'}`}>
+                              {u.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
                             </div>
                             <div>
-                              <p className="text-sm font-medium text-[#1A1A2E]">{u.name}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-medium text-[#1A1A2E]">{u.name}</p>
+                                {isMe && <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">You</span>}
+                              </div>
                               <p className="text-xs text-gray-400">{u.email}</p>
                             </div>
                           </div>
                         </td>
                         <td className="px-4 py-3.5">
-                          <Badge variant={ROLE_BADGE[u.role]}>
-                            {u.role.charAt(0).toUpperCase() + u.role.slice(1)}
-                          </Badge>
+                          <span className={`text-xs font-medium px-2 py-1 rounded-full border ${ROLE_BADGE[u.role] ?? 'bg-gray-100 text-gray-600'}`}>
+                            {ROLE_LABEL[u.role] ?? u.role}
+                          </span>
                         </td>
                         <td className="px-4 py-3.5 text-sm text-gray-600">
                           {teamLead?.name ?? <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-4 py-3.5">
                           <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {u.id !== currentUser.id && (
-                              <>
-                                <Button variant="ghost" size="icon-sm" onClick={() => setEditUser(u)}>
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button variant="ghost" size="icon-sm" onClick={() => setConfirmDeleteUser(u)}
-                                  className="text-red-400 hover:text-red-600">
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </>
+                            {canEdit(u) && (
+                              <Button variant="ghost" size="icon-sm" onClick={() => setEditUser(u)}>
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {canDelete(u) && (
+                              <Button variant="ghost" size="icon-sm" onClick={() => setConfirmDeleteUser(u)}
+                                className="text-red-400 hover:text-red-600">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
                             )}
                           </div>
                         </td>
@@ -147,9 +187,12 @@ export function SettingsView({ currentUser }: Props) {
         <TabsContent value="thresholds" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Alert & Threshold Settings</CardTitle>
+              <CardTitle className="text-sm">Alert &amp; Threshold Settings</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {settings.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-4">No threshold settings configured.</p>
+              )}
               {settings.map((setting, i) => (
                 <div key={setting.key} className="flex items-center gap-4">
                   <div className="flex-1">
@@ -158,8 +201,7 @@ export function SettingsView({ currentUser }: Props) {
                   </div>
                   <div className="w-24">
                     <Input
-                      type="number"
-                      min="1"
+                      type="number" min="1"
                       value={setting.value}
                       onChange={e => {
                         const updated = [...settings]
@@ -172,14 +214,58 @@ export function SettingsView({ currentUser }: Props) {
                   <span className="text-xs text-gray-400 w-8">days</span>
                 </div>
               ))}
-              <div className="flex justify-end pt-2">
-                <Button variant="primary" size="sm" onClick={handleSaveSettings}>
-                  <Save className="h-3.5 w-3.5" /> Save Thresholds
-                </Button>
-              </div>
+              {settings.length > 0 && (
+                <div className="flex justify-end pt-2">
+                  <Button variant="primary" size="sm" onClick={handleSaveSettings}>
+                    <Save className="h-3.5 w-3.5" /> Save Thresholds
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Super Admin tab */}
+        {isSuperAdmin && (
+          <TabsContent value="super" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <ShieldAlert className="h-4 w-4 text-amber-500" /> Super Admin Controls
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800 space-y-2">
+                  <p className="font-semibold">You are logged in as Super Admin.</p>
+                  <p>Super Admin is the highest privilege level in BIZOS. You can:</p>
+                  <ul className="list-disc ml-4 space-y-1 text-amber-700 mt-1">
+                    <li>View and edit all users, including other Admins</li>
+                    <li>Promote any user to Admin or Super Admin</li>
+                    <li>Demote any Admin (but not other Super Admins)</li>
+                    <li>Delete any non-Super Admin user</li>
+                    <li>Access all platform features and data</li>
+                  </ul>
+                  <p className="text-amber-600 text-xs mt-2">Super Admin accounts cannot be demoted or deleted through the UI for security.</p>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-[#1A1A2E] mb-3">Role Distribution</h3>
+                  <div className="grid grid-cols-5 gap-2">
+                    {['super_admin', 'admin', 'manager', 'recruiter', 'viewer'].map(role => {
+                      const count = users.filter(u => u.role === role).length
+                      return (
+                        <div key={role} className="text-center p-3 rounded-lg border border-gray-200 bg-white">
+                          <p className="text-2xl font-bold text-[#1A1A2E]">{count}</p>
+                          <p className="text-[10px] text-gray-500 mt-0.5">{ROLE_LABEL[role]}</p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Edit user dialog */}
@@ -187,6 +273,7 @@ export function SettingsView({ currentUser }: Props) {
         <UserEditDialog
           user={editUser}
           users={users}
+          currentUser={currentUser}
           onClose={() => setEditUser(null)}
           onSaved={() => { setEditUser(null); loadUsers() }}
         />
@@ -195,6 +282,7 @@ export function SettingsView({ currentUser }: Props) {
       {/* Create user dialog */}
       {showCreateUser && (
         <UserCreateDialog
+          currentUser={currentUser}
           onClose={() => setShowCreateUser(false)}
           onSaved={() => { setShowCreateUser(false); loadUsers() }}
         />
@@ -220,10 +308,19 @@ export function SettingsView({ currentUser }: Props) {
   )
 }
 
-function UserEditDialog({ user, users, onClose, onSaved }: { user: User; users: User[]; onClose: () => void; onSaved: () => void }) {
+function UserEditDialog({
+  user, users, currentUser, onClose, onSaved,
+}: {
+  user: User; users: User[]; currentUser: User; onClose: () => void; onSaved: () => void
+}) {
   const [form, setForm] = useState({ name: user.name, role: user.role as string, team_lead_id: user.team_lead_id ?? '' })
   const [saving, setSaving] = useState(false)
   const supabase = createClient()
+  const isSuperAdmin = currentUser.role === 'super_admin'
+
+  const assignableRoles = isSuperAdmin
+    ? ['super_admin', 'admin', 'manager', 'recruiter', 'viewer']
+    : ['admin', 'manager', 'recruiter', 'viewer']
 
   async function handleSave() {
     setSaving(true)
@@ -239,7 +336,7 @@ function UserEditDialog({ user, users, onClose, onSaved }: { user: User; users: 
   return (
     <Dialog open onOpenChange={() => onClose()}>
       <DialogContent className="max-w-sm">
-        <DialogHeader><DialogTitle>Edit User</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Edit User — {user.name}</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label>Name</Label>
@@ -250,11 +347,14 @@ function UserEditDialog({ user, users, onClose, onSaved }: { user: User; users: 
             <Select value={form.role} onValueChange={v => setForm(f => ({ ...f, role: v }))}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {['admin','manager','recruiter','viewer'].map(r => (
-                  <SelectItem key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</SelectItem>
+                {assignableRoles.map(r => (
+                  <SelectItem key={r} value={r}>{ROLE_LABEL[r]}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {form.role === 'super_admin' && (
+              <p className="text-xs text-amber-600 mt-1">⚠ Super Admin has the highest privilege. Assign with caution.</p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label>Reports To (Team Lead)</Label>
@@ -262,8 +362,8 @@ function UserEditDialog({ user, users, onClose, onSaved }: { user: User; users: 
               <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="">None</SelectItem>
-                {users.filter(u => u.id !== user.id && ['admin','manager'].includes(u.role)).map(u => (
-                  <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                {users.filter(u => u.id !== user.id && ['super_admin', 'admin', 'manager'].includes(u.role)).map(u => (
+                  <SelectItem key={u.id} value={u.id}>{u.name} ({ROLE_LABEL[u.role]})</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -280,10 +380,19 @@ function UserEditDialog({ user, users, onClose, onSaved }: { user: User; users: 
   )
 }
 
-function UserCreateDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+function UserCreateDialog({
+  currentUser, onClose, onSaved,
+}: {
+  currentUser: User; onClose: () => void; onSaved: () => void
+}) {
   const [form, setForm] = useState({ name: '', email: '', role: 'recruiter', password: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const isSuperAdmin = currentUser.role === 'super_admin'
+
+  const assignableRoles = isSuperAdmin
+    ? ['super_admin', 'admin', 'manager', 'recruiter', 'viewer']
+    : ['admin', 'manager', 'recruiter', 'viewer']
 
   async function handleCreate() {
     setSaving(true)
@@ -321,8 +430,8 @@ function UserCreateDialog({ onClose, onSaved }: { onClose: () => void; onSaved: 
             <Select value={form.role} onValueChange={v => setForm(f => ({ ...f, role: v }))}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {['admin','manager','recruiter','viewer'].map(r => (
-                  <SelectItem key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</SelectItem>
+                {assignableRoles.map(r => (
+                  <SelectItem key={r} value={r}>{ROLE_LABEL[r]}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -331,7 +440,7 @@ function UserCreateDialog({ onClose, onSaved }: { onClose: () => void; onSaved: 
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={handleCreate} disabled={saving}>
+          <Button variant="primary" onClick={handleCreate} disabled={saving || !form.name || !form.email || !form.password}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} Create User
           </Button>
         </DialogFooter>
